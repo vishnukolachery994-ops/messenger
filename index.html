@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messenger</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        
+        /* Animations */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-slide-in { animation: slideIn 0.3s ease-out forwards; }
+        
+        /* Message Bubbles */
+        .msg-bubble { max-width: 85%; border-radius: 12px; padding: 10px 14px; position: relative; }
+        .msg-incoming { background: #1e293b; color: #f1f5f9; border-left: 4px solid #10b981; align-self: flex-start; }
+        .msg-outgoing { background: #10b981; color: white; align-self: flex-end; border-right: 4px solid #065f46; }
+        .msg-history { background: #f1f5f9; color: #475569; border-left: 4px solid #cbd5e1; }
+
+        /* Navigation & Active States */
+        .active-nav { background: #1e293b; color: #10b981 !important; border-right: 3px solid #10b981; }
+        .active-chat { background-color: #f1f5f9 !important; border-right: 4px solid #10b981; }
+        
+        /* Media Containers */
+        .media-container { position: relative; margin-top: 8px; border-radius: 8px; overflow: hidden; background: #0f172a; }
+        .media-container img, .media-container video {
+            border-radius: 8px; max-height: 280px; width: 100%; object-fit: contain;
+            cursor: zoom-in; transition: filter 0.2s;
+        }
+        .media-container img:hover { filter: brightness(0.8); }
+        
+        .download-overlay {
+            position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.6);
+            color: white; padding: 5px 10px; border-radius: 6px; font-size: 10px;
+            opacity: 0; transition: opacity 0.2s; pointer-events: none; font-weight: bold;
+        }
+        .media-container:hover .download-overlay { opacity: 1; }
+        
+        #image-modal { z-index: 100; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(8px); }
+
+        .status-badge {
+            font-size: 7px; padding: 1px 4px; border-radius: 4px;
+            font-weight: 900; letter-spacing: 0.5px; margin-left: 5px;
+        }
+        .status-sent { background: #94a3b8; color: white; }
+        .status-delivered { background: #64748b; color: white; }
+        .status-read { background: #38bdf8; color: white; }
+        
+        /* Audio Player Styling */
+        audio::-webkit-media-controls-panel { background-color: #f1f5f9; }
+        .audio-debug-text { font-size: 9px; color: #94a3b8; margin-top: 4px; font-family: monospace; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans flex h-screen overflow-hidden text-slate-900">
+
+    <div class="w-20 bg-slate-950 flex flex-col items-center py-6 border-r border-slate-800">
+        <div class="text-emerald-500 text-3xl mb-10"><i class="fa-brands fa-whatsapp"></i></div>
+        <nav class="flex flex-col gap-4 w-full">
+            <button onclick="switchTab('list')" id="nav-list" class="w-full py-4 text-slate-500 hover:text-white transition-all active-nav">
+                <i class="fa-solid fa-comments text-xl"></i>
+            </button>
+            <button onclick="switchTab('add')" id="nav-add" class="w-full py-4 text-slate-500 hover:text-white transition-all">
+                <i class="fa-solid fa-user-plus text-xl"></i>
+            </button>
+        </nav>
+        <button onclick="resetApp()" class="mt-auto py-4 text-slate-600 hover:text-red-400 transition-colors">
+            <i class="fa-solid fa-power-off text-xl"></i>
+        </button>
+    </div>
+
+    <div class="w-80 bg-white border-r border-slate-200 flex flex-col">
+        <div class="p-6 border-b border-slate-100">
+            <h2 class="text-xl font-black tracking-tight text-slate-800 mb-4 text-center text-emerald-600">Messenger</h2>
+            
+            <div class="bg-slate-900 rounded-xl p-4 shadow-lg mb-4">
+                <div class="flex justify-between items-center mb-3">
+                    <span class="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Device Link</span>
+                    <div id="connection-status" class="flex items-center gap-1.5 text-[10px] text-slate-400">
+                        <span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span> OFFLINE
+                    </div>
+                </div>
+                <input type="text" id="link-phone" class="w-full p-2 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white mb-2 outline-none focus:border-emerald-500" placeholder="Phone (e.g. 919074106437)">
+                <button id="link-btn" onclick="linkNewDevice()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-[10px] py-2 rounded-lg font-bold text-white transition uppercase">Get Pairing Code</button>
+                
+                <div id="pairing-display" class="hidden mt-3 p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-center">
+                    <p id="pairing-code-text" class="text-xl font-mono font-black text-emerald-400 tracking-widest">----</p>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-2">
+                <div class="flex gap-2">
+                    <select id="sync-period" class="flex-1 p-2 text-[10px] bg-slate-100 border-none rounded-lg font-bold outline-none">
+                        <option value="1">Last 24 Hours</option>
+                        <option value="7">Last 7 Days</option>
+                        <option value="30">Last 1 Month</option>
+                    </select>
+                    <button id="sync-btn" onclick="requestHistory()" class="px-3 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition">
+                        <i class="fa-solid fa-rotate text-xs"></i>
+                    </button>
+                </div>
+                <div id="sync-progress-container" class="hidden space-y-1 mt-2">
+                    <div class="flex justify-between text-[8px] font-black text-slate-400 uppercase">
+                        <span>Syncing...</span>
+                        <span id="sync-percent">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                        <div id="sync-bar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto bg-slate-50/50">
+            <div class="px-6 py-4 flex justify-between items-center sticky top-0 bg-slate-50/90 backdrop-blur z-10">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Conversations</span>
+                <div class="flex gap-3 text-[10px] font-bold text-emerald-600 uppercase">
+                    <button onclick="selectAll(true)">All</button>
+                    <button onclick="selectAll(false)" class="text-slate-400">None</button>
+                </div>
+            </div>
+            <div id="user-list" class="space-y-0.5"></div>
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col bg-white">
+        <div id="tab-list" class="flex flex-col h-full">
+            <div class="flex-1 overflow-hidden flex flex-col">
+                <div class="px-8 py-4 border-b border-slate-100 flex justify-between items-center bg-white/80 backdrop-blur">
+                    <div>
+                        <h3 id="current-chat-name" class="font-bold text-slate-800">All Activity</h3>
+                        <p id="current-chat-target" class="text-[10px] text-slate-400 font-mono tracking-tight">Viewing all broadcast/logs</p>
+                    </div>
+                    <div class="flex gap-4">
+                        <button onclick="resetFilter()" class="text-xs text-emerald-600 font-bold hover:underline">Show All</button>
+                        <button onclick="clearFeed()" class="text-xs text-slate-400 hover:text-red-500 transition">Clear Log</button>
+                    </div>
+                </div>
+                
+                <div id="incoming-feed" class="flex-1 p-8 overflow-y-auto flex flex-col space-y-4 bg-slate-50"></div>
+            </div>
+
+            <div class="p-8 bg-white border-t border-slate-100">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bulk Messenger</label>
+                        <span id="char-count" class="text-[10px] font-mono text-slate-400">0 chars</span>
+                    </div>
+                    <div class="relative">
+                        <textarea id="bulk-msg" class="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl h-28 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none resize-none transition-all" placeholder="Type message..."></textarea>
+                        <button id="send-btn" disabled onclick="sendToSelected()" class="absolute bottom-4 right-4 bg-slate-400 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all hover:scale-105 active:scale-95">
+                            <i class="fa-solid fa-paper-plane"></i>
+                            <span id="send-btn-text">SEND</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-add" class="hidden h-full flex items-center justify-center bg-slate-50">
+            <div class="w-full max-w-md bg-white p-10 rounded-3xl shadow-xl animate-slide-in">
+                <h2 class="text-2xl font-black text-slate-800 mb-8 flex items-center gap-3">
+                    <i class="fa-solid fa-circle-plus text-emerald-500"></i> New Contact
+                </h2>
+                <div class="space-y-6">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">Display Name</label>
+                        <input type="text" id="name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-emerald-500" placeholder="e.g. John Doe">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">Phone Number</label>
+                        <input type="text" id="phone" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-emerald-500 font-mono" placeholder="eg- 919876543210 ">
+                    </div>
+                    <button onclick="saveToDB()" class="w-full bg-emerald-600 text-white py-4 rounded-xl font-black shadow-lg hover:bg-emerald-500 transition-all active:scale-95">SAVE CONTACT</button>
+                    <button onclick="switchTab('list')" class="w-full text-slate-400 text-xs font-bold uppercase tracking-widest">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="image-modal" class="hidden fixed inset-0 flex flex-col items-center justify-center p-10">
+        <button onclick="closeModal()" class="absolute top-10 right-10 text-white text-4xl hover:text-emerald-500 transition">&times;</button>
+        <img id="modal-img" src="" class="max-w-full max-h-[80vh] rounded-lg shadow-2xl">
+        <div class="mt-6 flex gap-4">
+            <button id="modal-download-btn" class="bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-500 transition">
+                <i class="fa-solid fa-download mr-2"></i> Save to Computer
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        let db = JSON.parse(localStorage.getItem('contacts')) || [];
+        let currentConnectionState = "offline"; 
+        let activeChatId = null; 
+        let messageHistory = []; 
+
+        window.onload = () => { 
+            renderList(); 
+            switchTab('list'); 
+        };
+
+        function switchTab(tab) {
+            const isAdd = tab === 'add';
+            document.getElementById('tab-add').classList.toggle('hidden', !isAdd);
+            document.getElementById('tab-list').classList.toggle('hidden', isAdd);
+            document.getElementById('nav-add').classList.toggle('active-nav', isAdd);
+            document.getElementById('nav-list').classList.toggle('active-nav', !isAdd);
+        }
+
+        // --- Media Handlers ---
+        
+        function openImagePreview(path) {
+            const modal = document.getElementById('image-modal');
+            const modalImg = document.getElementById('modal-img');
+            const dlBtn = document.getElementById('modal-download-btn');
+            
+            modalImg.src = path;
+            dlBtn.onclick = () => downloadMedia(path);
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('image-modal').classList.add('hidden');
+        }
+
+        function downloadMedia(path) {
+            ipcRenderer.send('download-media-manually', path);
+        }
+
+        function getStatusHtml(status) {
+            if (status === 4) return `<span class="status-badge status-read">READ</span>`;
+            if (status === 3) return `<span class="status-badge status-delivered">DELIVERED</span>`;
+            return `<span class="status-badge status-sent">SENT</span>`;
+        }
+
+        // --- Core Rendering ---
+
+        function renderFeed() {
+            const feed = document.getElementById('incoming-feed');
+            feed.innerHTML = '';
+            
+            let filtered = activeChatId ? messageHistory.filter(m => m.chatId === activeChatId) : messageHistory;
+            filtered.sort((a, b) => (a.rawTimestamp || 0) - (b.rawTimestamp || 0));
+
+            if (filtered.length === 0) {
+                feed.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center opacity-20 py-20">
+                        <i class="fa-solid fa-message text-4xl mb-2"></i>
+                        <p class="font-bold uppercase text-xs">No Messages Found</p>
+                    </div>`;
+                return;
+            }
+
+            filtered.forEach(msg => {
+                let mediaHtml = "";
+                
+                if (msg.isMedia && msg.mediaPath) {
+                    if (msg.mediaType === 'imageMessage') {
+                        mediaHtml = `
+                        <div class="media-container" onclick="openImagePreview('${msg.mediaPath}')">
+                            <div class="download-overlay"><i class="fa-solid fa-expand"></i> VIEW</div>
+                            <img src="${msg.mediaPath}" class="shadow-sm">
+                        </div>`;
+                    } else if (msg.mediaType === 'videoMessage') {
+                        mediaHtml = `
+                        <div class="media-container">
+                            <video src="${msg.mediaPath}" controls class="w-full"></video>
+                        </div>`;
+                    } else if (msg.mediaType === 'audioMessage') {
+                        // REFINED: Added unique ID and deep debug script for each audio
+                        const audioId = `audio-${msg.msgId}`;
+                        mediaHtml = `
+                        <div class="mt-2 flex flex-col gap-1 bg-slate-100 p-3 rounded-xl border border-slate-200">
+                            <div class="flex items-center gap-3">
+                                <div class="bg-emerald-500 text-white p-2 rounded-full h-8 w-8 flex items-center justify-center">
+                                    <i class="fa-solid fa-microphone text-xs"></i>
+                                </div>
+                                <audio id="${audioId}" controls preload="metadata" class="h-10 w-full">
+                                    <source src="${msg.mediaPath}" type="audio/ogg; codecs=opus">
+                                </audio>
+                            </div>
+                            <div id="debug-${audioId}" class="audio-debug-text">Checking file...</div>
+                        </div>
+                        <script>
+                            (function() {
+                                const a = document.getElementById('${audioId}');
+                                const d = document.getElementById('debug-${audioId}');
+                                a.onplay = () => { d.innerText = "Playing..."; };
+                                a.onpause = () => { d.innerText = "Paused"; };
+                                a.onloadedmetadata = () => { d.innerText = "Ready (" + Math.round(a.duration) + "s)"; };
+                                a.onerror = () => {
+                                    const errs = ["NONE","ABORTED","NETWORK","DECODE","SRC_NOT_SUPPORTED"];
+                                    const errMsg = errs[a.error.code] || "UNKNOWN";
+                                    d.innerText = "Error: " + errMsg;
+                                    d.style.color = "#ef4444";
+                                    console.error("[AUDIO-LOG] FAILED ${msg.msgId} Error Code: " + a.error.code + " (" + errMsg + ")");
+                                };
+                            })();
+                        <\/script>`;
+                    } else if (msg.mediaType === 'stickerMessage') {
+                        mediaHtml = `
+                        <div class="w-32 h-32 mt-2">
+                            <img src="${msg.mediaPath}" class="w-full h-full object-contain">
+                        </div>`;
+                    }
+                }
+
+                const bubbleClass = msg.fromMe ? "msg-outgoing" : (msg.isHistory ? "msg-history" : "msg-incoming");
+                const html = `
+                    <div class="flex flex-col gap-1 animate-slide-in ${msg.fromMe ? 'items-end' : 'items-start'}">
+                        <div class="px-1 flex items-center text-[8px] text-slate-400 font-bold uppercase">
+                            ${msg.fromMe ? 'You' : (msg.senderName || 'Contact')} • ${msg.timestamp || 'Now'}
+                            ${msg.fromMe ? getStatusHtml(msg.status) : ''}
+                        </div>
+                        <div class="msg-bubble ${bubbleClass} shadow-sm">
+                            ${msg.text ? `<p class="text-sm leading-relaxed break-words whitespace-pre-wrap">${msg.text}</p>` : ''}
+                            ${mediaHtml}
+                        </div>
+                    </div>`;
+                feed.insertAdjacentHTML('beforeend', html);
+            });
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        // --- IPC Event Handlers ---
+
+        ipcRenderer.on('sync-progress', (event, { percent }) => {
+            const container = document.getElementById('sync-progress-container');
+            const bar = document.getElementById('sync-bar');
+            const text = document.getElementById('sync-percent');
+            container.classList.remove('hidden');
+            bar.style.width = `${percent}%`;
+            text.innerText = `${percent}%`;
+            if (percent >= 100) setTimeout(() => container.classList.add('hidden'), 2000);
+        });
+
+        ipcRenderer.on('incoming-message', (event, data) => {
+            checkAndAddContact(data);
+            if (!data.rawTimestamp) data.rawTimestamp = Date.now();
+            messageHistory.push(data);
+            if (!activeChatId || activeChatId === data.chatId) renderFeed();
+        });
+
+        ipcRenderer.on('message-sent-confirmation', (event, data) => {
+            const sentMsg = {
+                chatId: data.number.includes('@') ? data.number : data.number + '@s.whatsapp.net',
+                fromMe: true,
+                text: data.text,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                rawTimestamp: data.rawTimestamp || Date.now(),
+                status: 2
+            };
+            messageHistory.push(sentMsg);
+            if (!activeChatId || activeChatId === sentMsg.chatId) renderFeed();
+        });
+
+        ipcRenderer.on('connection-status', (event, status) => {
+            currentConnectionState = status;
+            const statusDiv = document.getElementById('connection-status');
+            const sendBtn = document.getElementById('send-btn');
+            if (status === 'connected') {
+                statusDiv.innerHTML = `<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span> ONLINE`;
+                sendBtn.disabled = false;
+                sendBtn.classList.replace('bg-slate-400', 'bg-emerald-600');
+            } else {
+                statusDiv.innerHTML = `<span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span> ${status.toUpperCase()}`;
+                sendBtn.disabled = true;
+                sendBtn.classList.replace('bg-emerald-600', 'bg-slate-400');
+            }
+        });
+
+        ipcRenderer.on('history-dump', (event, messages) => {
+            const processedHistory = messages.map(m => {
+                checkAndAddContact(m);
+                let rawTs = m.rawTimestamp || (m.epochTimestamp ? m.epochTimestamp * 1000 : Date.now());
+                return { ...m, rawTimestamp: rawTs, isHistory: true };
+            });
+            messageHistory = [...messageHistory, ...processedHistory];
+            renderFeed();
+        });
+
+        ipcRenderer.on('pairing-code', (event, code) => {
+            document.getElementById('pairing-display').classList.remove('hidden');
+            document.getElementById('pairing-code-text').innerText = code;
+        });
+
+        // --- Helper Logic ---
+
+        function checkAndAddContact(data) {
+            const jid = data.chatId;
+            if(!jid) return;
+            const exists = db.find(u => u.phone === jid);
+            if (!exists) {
+                const cleanNumber = jid.split('@')[0].split(':')[0];
+                const bestName = data.chatName || data.senderName || `+${cleanNumber}`;
+                db.push({ id: Date.now(), name: bestName, phone: jid });
+                localStorage.setItem('contacts', JSON.stringify(db));
+                renderList();
+            }
+        }
+
+        function renderList() {
+            const container = document.getElementById('user-list');
+            if(db.length === 0) {
+                container.innerHTML = `<div class="text-center py-10 opacity-30"><p class="text-[10px] font-bold uppercase">No Contacts Yet</p></div>`;
+                return;
+            }
+            container.innerHTML = db.map(user => `
+                <div id="chat-${user.phone}" onclick="openChat('${user.phone}', '${user.name}')" class="chat-item flex items-center justify-between p-4 hover:bg-slate-100 cursor-pointer transition-all border-b border-slate-50 group ${activeChatId === user.phone ? 'active-chat' : ''}">
+                    <div class="flex items-center gap-3 overflow-hidden w-full">
+                        <input type="checkbox" onclick="event.stopPropagation()" value="${user.phone}" class="user-cb w-4 h-4 accent-emerald-600 shrink-0">
+                        <div class="overflow-hidden flex-1">
+                            <p class="font-bold text-slate-700 text-sm truncate">${user.name}</p>
+                            <p class="text-[9px] text-slate-400 truncate">${user.phone.split('@')[0]}</p>
+                        </div>
+                    </div>
+                    <button onclick="event.stopPropagation(); deleteUser(${user.id})" class="opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 transition-all"><i class="fa-solid fa-trash-can text-xs"></i></button>
+                </div>`).join('');
+        }
+
+        function openChat(phone, name) {
+            activeChatId = phone;
+            document.getElementById('current-chat-name').innerText = name;
+            document.getElementById('current-chat-target').innerText = phone;
+            document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active-chat'));
+            const chatEl = document.getElementById(`chat-${phone}`);
+            if(chatEl) chatEl.classList.add('active-chat');
+            renderFeed();
+        }
+
+        function linkNewDevice() {
+            const phone = document.getElementById('link-phone').value.replace(/\D/g,'');
+            if(phone.length < 10) return alert("Enter valid phone number with country code");
+            ipcRenderer.send('request-pairing', phone);
+        }
+
+        function saveToDB() {
+            const name = document.getElementById('name').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            if(!name || !phone) return alert("Fill all fields");
+            const jid = phone.includes('@') ? phone : phone.replace(/\D/g,'') + '@s.whatsapp.net';
+            db.push({ id: Date.now(), name, phone: jid });
+            localStorage.setItem('contacts', JSON.stringify(db));
+            renderList();
+            switchTab('list');
+        }
+
+        function sendToSelected() {
+            const msg = document.getElementById('bulk-msg').value.trim();
+            let targets = activeChatId ? [activeChatId] : Array.from(document.querySelectorAll('.user-cb:checked')).map(cb => cb.value);
+            
+            if(!msg) return alert("Please type a message.");
+            if(targets.length === 0) return alert("Select a contact or a chat first.");
+
+            targets.forEach(t => ipcRenderer.send('send-message', t, msg));
+            document.getElementById('bulk-msg').value = '';
+            document.getElementById('char-count').innerText = "0 chars";
+        }
+
+        function requestHistory() { 
+            if(currentConnectionState !== 'connected') return alert("WhatsApp is not connected.");
+            messageHistory = []; 
+            ipcRenderer.send('request-history-sync', parseInt(document.getElementById('sync-period').value)); 
+        }
+
+        function deleteUser(id) {
+            if(confirm("Delete this contact?")) {
+                db = db.filter(u => u.id !== id);
+                localStorage.setItem('contacts', JSON.stringify(db));
+                renderList();
+            }
+        }
+        
+        function selectAll(val) { 
+            document.querySelectorAll('.user-cb').forEach(cb => cb.checked = val); 
+        }
+
+        function resetFilter() { 
+            activeChatId = null; 
+            document.getElementById('current-chat-name').innerText = "All Activity"; 
+            document.getElementById('current-chat-target').innerText = "Viewing all broadcast/logs";
+            renderFeed(); 
+        }
+
+        function clearFeed() { 
+            if(confirm("Clear local logs?")) { 
+                messageHistory = []; 
+                renderFeed(); 
+            } 
+        }
+
+        function resetApp() { 
+            if(confirm("Are you sure you want to logout and clear all session data?")) {
+                ipcRenderer.send('reset-app');
+            }
+        }
+
+        document.getElementById('bulk-msg').addEventListener('input', (e) => {
+            document.getElementById('char-count').innerText = `${e.target.value.length} chars`;
+        });
+    </script>
+</body>
+</html>

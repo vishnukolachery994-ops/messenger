@@ -1,0 +1,37 @@
+{
+  "name": "nexus-wa-messenger",
+  "version": "1.0.0",
+  "description": "WhatsApp Desktop Bulk Sender",
+  "main": "main.js",
+  "author": "Vishnu",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "electron": "^40.6.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.nexuswa.app",
+    "productName": "NexusWA Messenger",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "icon.ico"
+    },
+    "files": [
+      "**/*",
+      "!auth/*",
+      "!dist/*"
+    ]
+  }
+}
